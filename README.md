@@ -63,6 +63,34 @@ Copie `.env.example` para `.env` e ajuste:
    ```
 5. Confira o log da execução em `logs/atribuicao_AAAAMMDD_HHMM.xlsx`.
 
+Professores que terminam com status `parcial` ou `erro` são automaticamente reprocessados (fila de
+retry) até `RETRY_MAX` tentativas — como `processar_professor` relê o estado a cada tentativa, o
+delta encolhe e a operação é idempotente.
+
+## Validação e debug
+
+Antes de rodar tudo, dá para validar por partes (com o Chrome logado):
+
+```powershell
+# 1) sessão CDP + acesso ao Gestor de Classes
+.venv\Scripts\python -m src.verificar_sessao
+
+# 2) harvest do GC: 5 classes (rápido) e depois completo — confira as contagens contra o portal
+.venv\Scripts\python -m src.harvester 5
+.venv\Scripts\python -m src.harvester
+
+# 3) um único professor da planilha, ponta a ponta (faz harvest completo + processa + exporta log)
+.venv\Scripts\python -m src.perfil mirela.godoy
+
+# 4) execução controlada do fluxo real, limitada
+.venv\Scripts\python -m src.main --limite 1
+.venv\Scripts\python -m src.main --harvest-limite 20   # harvest parcial (matérias podem ficar incompletas)
+```
+
+Em qualquer caso, o log em `logs/` traz uma linha por operação (`turma_adicionada`,
+`materia_adicionada`, `ambiguidade`, `validado`, `*_faltando`, `erro`) — é a fonte de verdade, já
+que o portal não emite confirmação ao salvar.
+
 ## Planilha de entrada (`dados/input_professores.xlsx`)
 
 Uma linha por professor (linhas com o mesmo `login` são unidas). Colunas de ano com `"Sim"`
@@ -78,8 +106,9 @@ indicam os anos que o professor leciona naquela `turma`+`periodo`.
 .venv\Scripts\python -m pytest
 ```
 
-Os módulos de lógica pura (`matching`, `ingestao`, `registro`) são cobertos por testes que não
-precisam de navegador.
+A lógica pura (`matching`, `ingestao`, `registro` e as Fases 1/3 de `perfil`) é coberta por testes
+que **não precisam de navegador**. As partes que dependem do portal (harvest, busca/escrita no
+CENSO) são validadas pelos comandos de debug acima, com a sessão logada.
 
 ## Estrutura
 
