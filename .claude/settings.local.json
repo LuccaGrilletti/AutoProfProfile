@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m venv .venv)",
+      "Bash(./.venv/Scripts/python.exe -m pip install --upgrade pip --quiet)",
+      "Bash(./.venv/Scripts/python.exe -m pip install -r requirements.txt)",
+      "Bash(./.venv/Scripts/python.exe -m pip list)",
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(./.venv/Scripts/python.exe -c \"import src.sessao; print\\('sessao OK:', [n for n in dir\\(src.sessao\\) if not n.startswith\\('__'\\)][:8]\\)\")",
+      "Bash(./.venv/Scripts/python.exe -m pytest -q)"
+    ]
+  }
+}

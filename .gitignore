@@ -1,0 +1,15 @@
+# Ambiente Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Segredos / config local
+.env
+
+# Saídas de runtime
+logs/*.xlsx
+
+# Dados de entrada (planilhas reais). O template fica versionado via exceção abaixo.
+dados/*.xlsx
+!dados/input_professores.xlsx
