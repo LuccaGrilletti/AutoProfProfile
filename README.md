@@ -30,7 +30,7 @@ A cada execução, tudo o que foi feito é registrado em um log xlsx (uma linha 
 ## 1. Clonar e instalar
 
 ```powershell
-git clone <URL-do-repositorio> AutoProfProfile
+git clone https://github.com/LuccaGrilletti/AutoProfProfile AutoProfProfile
 cd AutoProfProfile
 
 python -m venv .venv
