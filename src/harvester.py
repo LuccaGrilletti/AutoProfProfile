@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import config
+from .matching import classe_bate
 from .registro import resumir_erro
 
 # --- Seletores (estruturais, estáveis) ---
@@ -47,13 +48,21 @@ MapaProfessorClasses = dict[str, list[ClasseGC]]
 
 
 def harvest_gc(page, url_gc: str, url_classe_base: str,
-               limite_classes: int | None = None) -> MapaProfessorClasses:
-    """Lê todas as classes do GC e retorna o mapa professor_id → [ClasseGC].
+               limite_classes: int | None = None,
+               filtro_turmas: list | None = None) -> MapaProfessorClasses:
+    """Lê as classes do GC e retorna o mapa professor_id → [ClasseGC].
 
     limite_classes: se informado, processa só as N primeiras classes (para validação rápida).
+    filtro_turmas: lista de TurmaAlvo; se informada, abre só as classes cujo nome casa com algum
+        alvo (mesmo predicado classe_bate usado depois no perfil — não perde nada que será usado).
     """
     classes = _listar_classes(page, url_gc)
     print(f"[harvester] {len(classes)} classe(s) listada(s) no Gestor de Classes.")
+    if filtro_turmas:
+        antes = len(classes)
+        classes = [(cid, nome) for cid, nome in classes
+                   if any(classe_bate(nome, alvo) for alvo in filtro_turmas)]
+        print(f"[harvester] filtro de turmas: {len(classes)}/{antes} classe(s) relevante(s).")
     if limite_classes is not None:
         classes = classes[:limite_classes]
         print(f"[harvester] processando apenas {len(classes)} classe(s) (limite).")
@@ -171,10 +180,16 @@ def _coletar_classe(page, url_classe_base: str, classe_id: str, classe_nome: str
 
 
 def _coletar_materias(page) -> set[str]:
-    """Chips da seção Matérias; remove o '×' final do botão de remover."""
     materias = set()
     for chip in page.query_selector_all(SELETOR_CHIP_MATERIA):
-        texto = chip.inner_text().strip().rstrip("×").strip()
+        # O nome está no primeiro text node — ignora o ícone "close" do mat-chip-remove
+        texto = chip.evaluate("""el => {
+            return Array.from(el.childNodes)
+                .filter(n => n.nodeType === Node.TEXT_NODE)
+                .map(n => n.textContent.trim())
+                .filter(t => t.length > 0)
+                .join('');
+        }""")
         if texto:
             materias.add(texto)
     return materias
@@ -182,11 +197,26 @@ def _coletar_materias(page) -> set[str]:
 
 def _coletar_professores(page) -> list[ProfessorGC]:
     """Abre a aba Professores e lê a tabela; lista vazia se a classe não tiver professores."""
+    page.wait_for_selector(SELETOR_ABA_PROFESSORES, timeout=config.TIMEOUT_ELEMENTO)
     page.click(SELETOR_ABA_PROFESSORES)
+    page.wait_for_timeout(2000)  # aguarda Angular renderizar conteúdo da aba
+    
+    # Imprime só a parte relevante do DOM após a aba carregar
+    conteudo = page.evaluate("""() => {
+        const el = document.querySelector('app-lista-participantes') 
+                || document.querySelector('.tab-pane.active')
+                || document.querySelector('router-outlet + *');
+        return el ? el.innerHTML.substring(0, 2000) : 'componente não encontrado';
+    }""")
+    print(f"[debug] conteúdo aba Professores: {conteudo[:2000]}")
     try:
         page.wait_for_selector(SELETOR_PROF_OU_VAZIO, timeout=TIMEOUT_TABELA_PROF)
     except Exception:
-        return []  # aba não renderizou linhas nem indicador de vazio
+        print("[debug] timeout esperando linhas de professor")
+        return []
+
+    linhas = page.query_selector_all(SELETOR_LINHA_PROF)
+    print(f"[debug] linhas de professor encontradas: {len(linhas)}")
 
     professores = []
     for linha in page.query_selector_all(SELETOR_LINHA_PROF):

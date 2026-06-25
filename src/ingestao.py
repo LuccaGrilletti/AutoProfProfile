@@ -5,8 +5,8 @@ As matérias NÃO vêm da planilha — são derivadas do Gestor de Classes em ru
 """
 
 from dataclasses import dataclass, field
-
-from openpyxl import load_workbook
+import src.config as config
+import openpyxl
 
 # Mapeamento das colunas de ano da planilha para (ano, segmento).
 COLUNAS_ANOS = [
@@ -42,51 +42,22 @@ class AtribuicaoProfessor:
     # matérias NÃO entram aqui — derivadas do GC em runtime
 
 
-def carregar_planilha(caminho) -> list[AtribuicaoProfessor]:
-    """Lê o xlsx de entrada e retorna a lista de atribuições, agrupada por login.
-
-    Para cada linha, cada coluna de ano marcada com "Sim" (case-insensitive, com strip) vira um
-    TurmaAlvo: ano+segmento da coluna, turma+periodo da linha. Linhas com o mesmo login têm as
-    turmas unidas, preservando a ordem e descartando duplicatas. Linhas sem login são ignoradas.
-    """
-    workbook = load_workbook(caminho, read_only=True, data_only=True)
-    planilha = workbook.active
-    try:
-        linhas = planilha.iter_rows(values_only=True)
-        try:
-            cabecalho = [_texto(c) for c in next(linhas)]
-        except StopIteration:
-            return []
-
-        indice = {nome: i for i, nome in enumerate(cabecalho)}
-        idx_login = _indice_coluna(indice, "login")
-        idx_turma = _indice_coluna(indice, "turma")
-        idx_periodo = _indice_coluna(indice, "periodo")
-
-        # login → dict[TurmaAlvo] (dict preserva ordem de inserção e evita duplicatas)
-        por_login: dict[str, dict] = {}
-        for linha in linhas:
-            login = _celula(linha, idx_login)
-            if not login:
-                continue
-            turma = _celula(linha, idx_turma)
-            periodo = _celula(linha, idx_periodo)
-
-            turmas = por_login.setdefault(login, {})
-            for nome_coluna, ano, segmento in COLUNAS_ANOS:
-                j = indice.get(nome_coluna)
-                if j is None or j >= len(linha):
-                    continue
-                if _eh_sim(linha[j]):
-                    alvo = TurmaAlvo(ano=ano, segmento=segmento, turma=turma, periodo=periodo)
-                    turmas[alvo] = None
-    finally:
-        workbook.close()
-
-    return [
-        AtribuicaoProfessor(login=login, turmas=list(turmas))
-        for login, turmas in por_login.items()
-    ]
+def carregar_planilha(caminho: str) -> list[AtribuicaoProfessor]:
+    wb = openpyxl.load_workbook(caminho, read_only=True, data_only=True)
+    ws = wb["professores"]
+    agrupado: dict[str, list[TurmaAlvo]] = {}
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        login, turma, periodo = row[0], row[1], row[2]
+        if not login or not turma or not periodo:
+            continue
+        login, turma, periodo = str(login).strip(), str(turma).strip(), str(periodo).strip()
+        turmas = agrupado.setdefault(login, [])
+        for ano, segmento in config.ANOS_FIXOS:
+            turmas.append(TurmaAlvo(ano=ano, segmento=segmento,
+                                    turma=turma, periodo=periodo))
+    wb.close()
+    return [AtribuicaoProfessor(login=login, turmas=turmas)
+            for login, turmas in agrupado.items()]
 
 
 def _eh_sim(valor) -> bool:
@@ -115,3 +86,69 @@ def _indice_coluna(indice: dict, nome: str):
         if chave.lower() == alvo:
             return i
     return None
+
+MATERIAS_PADRAO: list[tuple[str, str]] = [
+    ("Língua Portuguesa", "1º ano EF AI"),
+    ("Matemática", "1º ano EF AI"),
+    ("Inglês", "1º ano EF AI"),
+    ("Bilingual Education", "1º ano EF AI"),
+    ("Língua Portuguesa", "5º ano EF AI"),
+    ("Matemática", "5º ano EF AI"),
+    ("Ciências", "5º ano EF AI"),
+    ("Geografia", "5º ano EF AI"),
+    ("História", "5º ano EF AI"),
+    ("Arte", "5º ano EF AI"),
+    ("Bilingual Education", "5º ano EF AI"),
+    ("Língua Portuguesa", "6º ano EF AF"),
+    ("Matemática", "6º ano EF AF"),
+    ("Ciências", "6º ano EF AF"),
+    ("História", "6º ano EF AF"),
+    ("Arte", "6º ano EF AF"),
+    ("Inglês", "6º ano EF AF"),
+    ("Bilingual Education", "6º ano EF AF"),
+    ("Ciências", "7º ano EF AF"),
+    ("Matemática", "1º ano EM"),
+    ("Geografia", "1º ano EM"),
+    ("História", "1º ano EM"),
+    ("Sociologia", "1º ano EM"),
+    ("Filosofia", "1º ano EM"),
+    ("Física", "1º ano EM"),
+    ("Química", "1º ano EM"),
+    ("Biologia", "1º ano EM"),
+    ("Arte", "1º ano EM"),
+    ("Inglês", "1º ano EM"),
+    ("Gramática", "1º ano EM"),
+    ("Literatura", "1º ano EM"),
+    ("Bilingual Education", "1º ano EM"),
+    ("Matemática", "3º ano EM"),
+    ("Ciências", "3º ano EM"),
+    ("Geografia", "3º ano EM"),
+    ("História", "3º ano EM"),
+    ("Sociologia", "3º ano EM"),
+    ("Filosofia", "3º ano EM"),
+    ("Física", "3º ano EM"),
+    ("Química", "3º ano EM"),
+    ("Biologia", "3º ano EM"),
+    ("Arte", "3º ano EM"),
+    ("Inglês", "3º ano EM"),
+    ("Gramática", "3º ano EM"),
+    ("Literatura", "3º ano EM"),
+    ("Bilingual Education", "3º ano EM"),
+]
+
+def carregar_materias(caminho: str) -> list[tuple[str, str]]:
+    """Lê a aba Materias da planilha → [(nome_materia, serie)].
+    Se a aba não existir, retorna a lista padrão hardcoded.
+    """
+    wb = openpyxl.load_workbook(caminho, read_only=True, data_only=True)
+    if "Materias" not in wb.sheetnames:
+        wb.close()
+        return MATERIAS_PADRAO
+    ws = wb["Materias"]
+    materias = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        nome, serie = row[0], row[1]
+        if nome and serie:
+            materias.append((str(nome).strip(), str(serie).strip()))
+    wb.close()
+    return materias if materias else MATERIAS_PADRAO

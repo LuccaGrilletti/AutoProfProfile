@@ -1,5 +1,5 @@
 from src.ingestao import TurmaAlvo
-from src.matching import classe_bate, normalizar_classe, periodo_bate
+from src.matching import classe_bate, normalizar_classe, periodo_bate, segmento_para_texto
 
 
 def test_normalizar_classe_extrai_ano_e_segmento():
@@ -39,3 +39,12 @@ def test_classe_bate_em():
     alvo = TurmaAlvo(ano=1, segmento="EM", turma="A", periodo="Matutino")
     assert classe_bate("1ª série EM Turma A - Matutino", alvo) is True
     assert classe_bate("1° ano EF AF Turma A - Matutino", alvo) is False
+
+
+def test_segmento_para_texto():
+    assert segmento_para_texto(TurmaAlvo(5, "EF", "G", "Matutino")) == "Ensino Fundamental Anos Iniciais"
+    assert segmento_para_texto(TurmaAlvo(1, "EF", "G", "Matutino")) == "Ensino Fundamental Anos Iniciais"
+    assert segmento_para_texto(TurmaAlvo(6, "EF", "G", "Matutino")) == "Ensino Fundamental Anos Finais"
+    assert segmento_para_texto(TurmaAlvo(9, "EF", "G", "Matutino")) == "Ensino Fundamental Anos Finais"
+    assert segmento_para_texto(TurmaAlvo(1, "EM", "A", "Matutino")) == "Ensino Médio"
+    assert segmento_para_texto(TurmaAlvo(3, "EM", "A", "Matutino")) == "Ensino Médio"

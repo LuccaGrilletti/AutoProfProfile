@@ -60,3 +60,8 @@ TIMEOUT_NAVEGACAO = 60_000
 DIR_DADOS = BASE_DIR / "dados"
 DIR_LOGS = BASE_DIR / "logs"
 CAMINHO_PLANILHA = DIR_DADOS / "input_professores.xlsx"
+
+ANOS_FIXOS: list[tuple[int, str]] = [
+    (1, "EF"), (5, "EF"), (6, "EF"), (7, "EF"),
+    (1, "EM"), (3, "EM"),
+]

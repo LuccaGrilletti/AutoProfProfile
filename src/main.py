@@ -1,19 +1,18 @@
-"""Orquestrador: lê a planilha, faz o harvest do GC uma vez e processa cada professor.
+"""Orquestrador: lê a planilha e processa cada professor.
 
-Fluxo: conectar → carregar planilha → harvest do GC (1×) → loop de professores com fila de
+Fluxo: conectar → carregar planilha → carregar matérias fixas → loop de professores com fila de
 retry (até RETRY_MAX) → exportar o log da execução → encerrar a sessão.
 
-    python -m src.main                       # execução completa
-    python -m src.main --limite 1            # só o 1º professor (validação controlada)
-    python -m src.main --harvest-limite 20   # harvest parcial (teste rápido; matérias incompletas)
+    python -m src.main                  # execução completa
+    python -m src.main --limite 1       # só o 1º professor (validação controlada)
+    python -m src.main --teste          # atalho: processa só o 1º professor
 """
 
 import argparse
 import sys
 
 from . import config
-from .harvester import harvest_gc
-from .ingestao import carregar_planilha
+from .ingestao import carregar_planilha, carregar_materias
 from .perfil import processar_professor
 from .registro import RegistroExecucao, resumir_erro
 from .sessao import obter_sessao
@@ -27,14 +26,14 @@ def _parse_args():
         description="Atribuição de turmas e matérias ao professor no Pegasus (CENSO).")
     parser.add_argument("--limite", type=int, default=None,
                         help="processa no máximo N professores (validação controlada)")
-    parser.add_argument("--harvest-limite", type=int, default=None,
-                        help="limita o harvest a N classes (teste rápido; matérias podem ficar incompletas)")
+    parser.add_argument("--teste", action="store_true",
+                        help="atalho: processa só o 1º professor")
     return parser.parse_args()
 
 
-def _processar_todos(page, profs, mapa, registro):
-    """Processa todos os professores com fila de retry (nível professor) até RETRY_MAX tentativas."""
-    resultados: dict[str, object] = {}  # login → ResultadoProfessor (último resultado)
+def _processar_todos(page, profs, materias_fixas, registro):
+    """Processa todos os professores com fila de retry até RETRY_MAX tentativas."""
+    resultados: dict[str, object] = {}
     pendentes = list(profs)
     for tentativa in range(1, config.RETRY_MAX + 1):
         if tentativa > 1:
@@ -43,7 +42,7 @@ def _processar_todos(page, profs, mapa, registro):
         proxima_rodada = []
         for i, prof in enumerate(pendentes, start=1):
             print(f"[{tentativa}.{i}/{len(pendentes)}] {prof.login}...", end=" ", flush=True)
-            resultado = processar_professor(page, prof, mapa, config.URL_CENSO,
+            resultado = processar_professor(page, prof, materias_fixas, config.URL_CENSO,
                                             config.URL_PROFESSOR_BASE, registro)
             resultados[prof.login] = resultado
             print(resultado.status)
@@ -90,18 +89,22 @@ def _encerrar_sessao(pw, browser, auth_mode):
 
 def main():
     args = _parse_args()
+    limite = 1 if args.teste else args.limite
 
     if not config.CAMINHO_PLANILHA.exists():
         print(f"ERRO: planilha não encontrada em {config.CAMINHO_PLANILHA}")
         sys.exit(1)
 
     profs = carregar_planilha(config.CAMINHO_PLANILHA)
-    if args.limite is not None:
-        profs = profs[:args.limite]
+    if limite is not None:
+        profs = profs[:limite]
     if not profs:
         print("Planilha sem professores. Nada a fazer.")
         sys.exit(0)
-    print(f"{len(profs)} professor(es) a processar (AUTH_MODE={config.AUTH_MODE}).")
+
+    materias_fixas = carregar_materias(config.CAMINHO_PLANILHA)
+    print(f"{len(profs)} professor(es) a processar, "
+          f"{len(materias_fixas)} matéria(s) fixas (AUTH_MODE={config.AUTH_MODE}).")
 
     registro = RegistroExecucao()
     pw = None
@@ -110,11 +113,7 @@ def main():
         print(f"Conectando à sessão ({config.AUTH_MODE})...")
         pw, browser, page = obter_sessao(config.AUTH_MODE, config.CDP_URL, config.URL_PEGASUS)
 
-        print("Lendo o Gestor de Classes (harvest único)...")
-        mapa = harvest_gc(page, config.URL_GC, config.URL_CLASSE_BASE,
-                          limite_classes=args.harvest_limite)
-
-        resultados = _processar_todos(page, profs, mapa, registro)
+        resultados = _processar_todos(page, profs, materias_fixas, registro)
         _imprimir_resumo(resultados, _contar(resultados))
     except Exception as exc:
         print(f"ERRO fatal: {resumir_erro(exc)}")

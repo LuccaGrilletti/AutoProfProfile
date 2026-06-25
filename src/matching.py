@@ -47,3 +47,22 @@ def classe_bate(texto_classe: str, alvo: TurmaAlvo) -> bool:
         and f"Turma {alvo.turma}" in texto_classe
         and periodo_bate(texto_classe, alvo.periodo)
     )
+
+
+def segmento_para_texto(alvo: TurmaAlvo) -> str:
+    """Texto do segmento conforme aparece no dropdown do portal.
+
+    Regra: anos 1–5 EF → Anos Iniciais; anos 6–9 EF → Anos Finais; EM → Ensino Médio.
+    """
+    if alvo.segmento == "EM":
+        return "Ensino Médio"
+    return "Ensino Fundamental Anos Iniciais" if alvo.ano <= 5 else "Ensino Fundamental Anos Finais"
+
+def texto_small_esperado(alvo: TurmaAlvo) -> str:
+    """Subtexto do <small> no dropdown de matérias do perfil, derivado do TurmaAlvo."""
+    if alvo.segmento == "EM":
+        return f"Ensino Médio: {alvo.ano}º ano EM"
+    if alvo.ano <= 5:
+        return f"Ensino Fundamental Anos Iniciais: {alvo.ano}º ano EF AI"
+    return f"Ensino Fundamental Anos Finais: {alvo.ano}º ano EF AF"
+
