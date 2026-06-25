@@ -10,7 +10,10 @@
       "Bash(./.venv/Scripts/python.exe -m pytest -q)",
       "Bash(./.venv/Scripts/python.exe -m pytest -v)",
       "Bash(./.venv/Scripts/python.exe -c \"import src.perfil as p; print\\('perfil OK | seletor combobox:', p.COMBOBOX\\); print\\('status default class:', p.ResultadoProfessor\\(login=\\\\\"x\\\\\", status=\\\\\"erro\\\\\"\\).status\\)\")",
-      "Bash(./.venv/Scripts/python.exe -m src.main --help)"
+      "Bash(./.venv/Scripts/python.exe -m src.main --help)",
+      "Bash(.venv/Scripts/python -m pytest -q)",
+      "Bash(python -m pytest -q)",
+      "Bash(.venv/Scripts/python -m compileall -q src tests)"
     ]
   }
 }

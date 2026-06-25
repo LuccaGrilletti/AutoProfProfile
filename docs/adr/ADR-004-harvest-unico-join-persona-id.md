@@ -1,29 +1,31 @@
 # ADR-004 — Harvest único do GC e join por Persona ID
 
-**Status:** Aceito
+**Status:** Aceito — parte do *harvest para derivar matérias* foi substituída pela ADR-006 no
+fluxo v1; o **join por Persona ID continua válido e em uso**.
 
 ## Contexto
 
-Para saber as matérias de cada professor, é preciso ler o Gestor de Classes (GC), que mapeia
-classe → matérias → professores. Ler o GC é caro (centenas de classes, duas navegações por
-classe). Já o perfil no CENSO é localizado pelo **login** do professor, que retorna o **Persona
-ID**. As matérias precisam ser cruzadas entre os dois sistemas.
+O perfil no CENSO é localizado pelo **login** do professor, que retorna o **Persona ID**. Para
+saber as matérias de cada professor, a abordagem original lia o Gestor de Classes (GC), que mapeia
+classe → matérias → professores, e cruzava os dois sistemas. Ler o GC é caro (centenas de classes,
+duas navegações por classe).
 
 ## Decisão
 
-1. **Harvest único:** `harvest_gc()` é chamado **uma vez** por execução e produz o mapa
-   `persona_id → [ClasseGC]`, reutilizado para todos os professores.
-2. **Join por Persona ID:** confirmado com o operador que o Persona ID da tabela de participantes
-   do GC é **o mesmo** retornado pela busca do CENSO. O cruzamento é feito por esse ID (sem
-   fallback por nome).
-
-Fluxo: a busca no CENSO (pelo login) dá o `persona_id`; com ele, buscamos no mapa do GC as classes
-do professor e derivamos as matérias.
+1. **Join por Persona ID (vigente):** confirmado com o operador que o Persona ID da tabela de
+   participantes do GC é **o mesmo** retornado pela busca do CENSO. A busca no CENSO (pelo login)
+   dá o `persona_id`, que identifica o perfil do professor na URL. O cruzamento é por esse ID (sem
+   fallback por nome). Isso é o que `perfil._buscar_persona_id` faz hoje.
+2. **Harvest único para derivar matérias (legado na v1):** `harvest_gc()` produz o mapa
+   `persona_id → [ClasseGC]` em uma leitura por execução. **A v1 não usa mais esse mapa** para
+   alimentar o fluxo: as matérias vêm de uma lista fixa (ver ADR-006). O `harvester` permanece
+   como ferramenta **ativa** de inspeção do GC (auditar contagens, validar contra o portal).
 
 ## Consequências
 
-- **+** Uma leitura cara do GC amortizada entre todos os professores.
-- **+** Join determinístico e simples por ID.
+- **+** Join determinístico e simples por ID, sem ambiguidade de nomes.
+- **+** O harvester segue útil para auditoria, mesmo fora do caminho crítico.
 - **−** Depende da igualdade do Persona ID nos dois sistemas; se algum dia divergir, será preciso
   reintroduzir um casamento por nome normalizado.
-- **−** O mapa vive em memória durante toda a execução (aceitável para a escala atual).
+- **−** Se um dia o currículo voltar a ser derivado do GC, o custo da leitura cara (e o mapa em
+  memória) volta à mesa — ver os trade-offs na ADR-006.

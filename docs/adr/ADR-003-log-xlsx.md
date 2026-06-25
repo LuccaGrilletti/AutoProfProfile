@@ -15,8 +15,9 @@ Registrar uma linha por operação em memória (`registro.RegistroExecucao`) e e
 `logs/atribuicao_AAAAMMDD_HHMM.xlsx` (openpyxl) ao final da execução. Colunas: `timestamp`,
 `login_professor`, `persona_id`, `fase`, `acao`, `detalhe`, `status`.
 
-Como o portal **não dá feedback visual** (toast) ao salvar, a verdade do que foi feito é o log +
-a validação pós-save (releitura do perfil) — ver ADR-005.
+O portal **não dá feedback visual confiável** ao salvar; a verdade do que foi feito é o log, em que
+cada linha corresponde a uma operação confirmada (ou falha) — a validação em si é por toast (ver
+ADR-009).
 
 ## Consequências
 

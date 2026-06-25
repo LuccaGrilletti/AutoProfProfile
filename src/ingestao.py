@@ -1,14 +1,21 @@
 """Ingestão da planilha de entrada → dataclasses de atribuição.
 
-Uma linha por professor; linhas com o mesmo login são unidas (union de turmas, sem duplicatas).
-As matérias NÃO vêm da planilha — são derivadas do Gestor de Classes em runtime.
+Duas fontes de dados na v1:
+  - Turmas: vêm de `carregar_planilha`. Cada professor (coluna `login`) é associado às turmas
+    `turma`+`periodo` de suas linhas, COMBINADAS com o conjunto fixo de anos `config.ANOS_FIXOS`.
+    As colunas de ano da planilha (`COLUNAS_ANOS`) NÃO são lidas na v1 — ver ADR-006.
+  - Matérias: vêm de `carregar_materias` (aba `Materias` da planilha ou, na ausência dela, da lista
+    fixa `MATERIAS_PADRAO`). NÃO são derivadas do Gestor de Classes no fluxo principal — ver ADR-006.
+
+Linhas com o mesmo `login` são unidas (todas as turmas do professor entram na mesma atribuição).
 """
 
 from dataclasses import dataclass, field
 import src.config as config
 import openpyxl
 
-# Mapeamento das colunas de ano da planilha para (ano, segmento).
+# Layout das colunas de ano da planilha → (ano, segmento). LEGADO: descreve o cabeçalho do arquivo,
+# mas `carregar_planilha` não usa essas colunas na v1 (os anos vêm de config.ANOS_FIXOS). Ver ADR-006.
 COLUNAS_ANOS = [
     ("1° EF", 1, "EF"), ("2° EF", 2, "EF"), ("3° EF", 3, "EF"),
     ("4° EF", 4, "EF"), ("5° EF", 5, "EF"), ("6° EF", 6, "EF"),
@@ -39,10 +46,17 @@ class TurmaAlvo:
 class AtribuicaoProfessor:
     login: str
     turmas: list[TurmaAlvo] = field(default_factory=list)
-    # matérias NÃO entram aqui — derivadas do GC em runtime
+    # As matérias NÃO entram aqui — são uma lista fixa global (ver carregar_materias), não por professor.
 
 
 def carregar_planilha(caminho: str) -> list[AtribuicaoProfessor]:
+    """Lê a aba `professores` e retorna uma AtribuicaoProfessor por login.
+
+    Para cada linha (`login`, `turma`, `periodo`), gera uma TurmaAlvo para CADA ano de
+    `config.ANOS_FIXOS` — ou seja, todo professor recebe o mesmo conjunto fixo de anos naquela
+    turma/período (v1; as colunas de ano da planilha são ignoradas — ver ADR-006). Linhas sem
+    `login`, `turma` ou `periodo` são ignoradas; linhas com o mesmo `login` têm suas turmas unidas.
+    """
     wb = openpyxl.load_workbook(caminho, read_only=True, data_only=True)
     ws = wb["professores"]
     agrupado: dict[str, list[TurmaAlvo]] = {}
@@ -60,33 +74,8 @@ def carregar_planilha(caminho: str) -> list[AtribuicaoProfessor]:
             for login, turmas in agrupado.items()]
 
 
-def _eh_sim(valor) -> bool:
-    """True se a célula indica "Sim" (case-insensitive, ignorando espaços nas pontas)."""
-    return valor is not None and str(valor).strip().lower() == "sim"
-
-
-def _texto(valor) -> str:
-    """Normaliza uma célula para string sem espaços nas pontas."""
-    return "" if valor is None else str(valor).strip()
-
-
-def _celula(linha, indice) -> str:
-    """Valor textual da célula no índice dado, ou "" se índice inválido/ausente."""
-    if indice is None or indice >= len(linha):
-        return ""
-    return _texto(linha[indice])
-
-
-def _indice_coluna(indice: dict, nome: str):
-    """Índice da coluna pelo nome (case-insensitive), ou None se ausente."""
-    if nome in indice:
-        return indice[nome]
-    alvo = nome.lower()
-    for chave, i in indice.items():
-        if chave.lower() == alvo:
-            return i
-    return None
-
+# Lista fixa de matérias (nome, série) usada quando a planilha não traz a aba `Materias`.
+# É a fonte de matérias da v1 (ver ADR-006); para alterar o currículo, edite aqui ou a aba `Materias`.
 MATERIAS_PADRAO: list[tuple[str, str]] = [
     ("Língua Portuguesa", "1º ano EF AI"),
     ("Matemática", "1º ano EF AI"),

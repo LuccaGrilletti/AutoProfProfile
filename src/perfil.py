@@ -1,11 +1,15 @@
 """Leitura e escrita no perfil do professor (CENSO).
 
 processar_professor() executa cinco fases:
-  1. Deriva as matérias necessárias do mapa do GC (pelo persona_id).
-  2. Localiza o professor no CENSO (pelo login) e lê o estado atual (turmas + matérias).
+  1. Deriva as matérias necessárias da lista fixa da planilha (`carregar_materias`); na v1 NÃO
+     vêm do Gestor de Classes (ver ADR-006).
+  2. Localiza o professor no CENSO (pelo login) → persona_id e lê o estado atual (turmas + matérias).
   3. Calcula o delta (o que falta).
   4. Escreve as turmas e matérias faltantes.
-  5. Valida relendo o perfil após salvar (não há toast de confirmação no portal).
+  5. Valida: como o portal não emite confirmação confiável ao salvar, considera "resolvido" apenas
+     o que foi confirmado pelo toast "Salvo corretamente!" durante a escrita (Fase 4). O que não
+     foi confirmado marca o professor como `parcial` (candidato a retry). Não há releitura do
+     perfil — ver ADR-009.
 
 Entry de debug (processa UM professor da planilha, com o Chrome logado):
     python -m src.perfil <login>
@@ -49,7 +53,7 @@ OPCAO_DROPDOWN = "div.ng-option.ng-star-inserted:visible"
 BOTAO_ADICIONAR_TURMA = "button.btn.btn-warning.btn-sm.float-right.mt-2:visible"
 BOTAO_SALVAR_TURMAS = "button.btn.btn-success.btn-sm.ml-2.ng-star-inserted:visible"
 BOTAO_SALVAR_MATERIAS = "button.btn.btn-sm.btn-primary.float-right.ng-star-inserted:visible"
-TOAST_SALVO = "h6.ng-star-inserted"  # "Salvo corretamente!" — adicionar junto das outras constantes
+TOAST_SALVO = "h6.ng-star-inserted"  # toast "Salvo corretamente!" — única confirmação de save do portal
 
 TIMEOUT_LEITURA = 12_000   # aba que pode estar legitimamente vazia
 TIMEOUT_DROPDOWN = 8_000   # opções do ng-select após digitar
@@ -57,8 +61,15 @@ TIMEOUT_DROPDOWN = 8_000   # opções do ng-select após digitar
 
 @dataclass
 class ResultadoProfessor:
+    """Resultado do processamento de um professor (uma execução de processar_professor)."""
     login: str
-    status: str                    # sucesso | parcial | erro | ja_configurado | nao_encontrado
+    # status final do professor:
+    #   sucesso        — todo o delta foi adicionado e confirmado por toast
+    #   ja_configurado — nada faltava (turmas e matérias já presentes)
+    #   parcial        — parte do delta não foi confirmada (candidato a retry)
+    #   nao_encontrado — login não retornou resultado na busca do CENSO
+    #   erro           — exceção durante o processamento
+    status: str
     turmas_adicionadas: list[str] = field(default_factory=list)
     materias_adicionadas: list[str] = field(default_factory=list)
     erros: list[str] = field(default_factory=list)
@@ -68,6 +79,13 @@ def processar_professor(page, prof: AtribuicaoProfessor,
                         materias_fixas: list[tuple[str, str]],
                         url_censo: str, url_professor_base: str,
                         registro: RegistroExecucao) -> ResultadoProfessor:
+    """Processa um professor de ponta a ponta e devolve o ResultadoProfessor.
+
+    Executa as cinco fases descritas no docstring do módulo (buscar persona_id → ler estado →
+    delta → escrever → validar por toast), registrando cada operação em `registro`. É idempotente:
+    relê o estado atual e só escreve o delta, então pode ser chamada de novo com segurança (ADR-007).
+    Nunca levanta exceção — falhas viram status `erro` no resultado e uma linha de erro no registro.
+    """
     resultado = ResultadoProfessor(login=prof.login, status="erro")
     persona_id = ""
     try:
@@ -151,6 +169,10 @@ def _derivar_materias(materias_fixas: list[tuple[str, str]]) -> set[tuple[str, s
 # --- Fase 2: busca e leitura ---
 
 def _buscar_persona_id(page, url_censo, login):
+    """Busca o professor no CENSO pelo login e devolve o persona_id (ou None se não houver resultado).
+
+    O persona_id é a chave que liga o login ao perfil do professor na URL (ver ADR-004).
+    """
     page.goto(url_censo, timeout=config.TIMEOUT_NAVEGACAO)
     page.wait_for_selector(CAMPO_LOGIN, timeout=config.TIMEOUT_ELEMENTO)
     page.fill(CAMPO_LOGIN, login)
@@ -170,6 +192,10 @@ def _abrir_perfil(page, url_perfil):
 
 
 def _ler_turmas_atuais(page) -> set[str]:
+    """Lê a aba Turmas do perfil e devolve os textos das turmas atuais (ex.: '7° ano EF AF Turma G').
+
+    Set vazio é resultado legítimo (professor ainda sem turmas) — a tabela pode não renderizar.
+    """
     _clicar_aba(page, "Turmas")
     page.wait_for_load_state("networkidle", timeout=config.TIMEOUT_ELEMENTO)
     turmas = set()
@@ -186,6 +212,10 @@ def _ler_turmas_atuais(page) -> set[str]:
 
 
 def _ler_materias_atuais(page) -> set[str]:
+    """Lê a aba Matérias do perfil e devolve os rótulos atuais (formato 'Nome: série').
+
+    Set vazio é resultado legítimo (professor ainda sem matérias).
+    """
     _clicar_aba(page, "Matérias")
     page.wait_for_load_state("networkidle", timeout=config.TIMEOUT_ELEMENTO)
     try:
@@ -223,6 +253,12 @@ def _materias_faltantes(necessarias: set[tuple], atuais: set[str]) -> list[tuple
 
 # --- Fase 4: escrita ---
 def _escrever_turmas(page, turmas_delta, prof, persona_id, resultado, registro):
+    """Adiciona cada turma do delta na aba Turmas e salva uma vez no final.
+
+    Para cada alvo, tenta selecioná-lo nos comboboxes (_selecionar_e_adicionar_turma); o que entra
+    é registrado em `resultado.turmas_adicionadas` (base da validação da Fase 5). Só clica em salvar
+    se ao menos uma turma foi adicionada, e espera o toast "Salvo corretamente!" aparecer e sumir.
+    """
     _clicar_aba(page, "Turmas")
     page.click(BOTAO_EDITAR_TURMAS)
     page.wait_for_selector(COMBOBOX_SEGMENTO, timeout=config.TIMEOUT_ELEMENTO)
@@ -248,6 +284,12 @@ def _escrever_turmas(page, turmas_delta, prof, persona_id, resultado, registro):
                                detalhe="toast 'Salvo corretamente' não apareceu após salvar turmas")
 
 def _selecionar_e_adicionar_turma(page, alvo) -> bool:
+    """Seleciona segmento + turma nos dois comboboxes e clica em "Adicionar". True se adicionou.
+
+    Padrão em dois passos porque o combobox de turma só fica utilizável após escolher o segmento:
+    abre o dropdown de segmento (nth=0) e casa pelo texto; depois abre o de turma (nth=1) e percorre
+    as opções usando `classe_bate` (sem digitar) até achar a que corresponde ao alvo.
+    """
     # Passo 1 — abrir dropdown de segmento (nth=0) e selecionar por texto interno
     texto_segmento = segmento_para_texto(alvo)
     page.click(COMBOBOX_SEGMENTO)
@@ -279,6 +321,11 @@ def _selecionar_e_adicionar_turma(page, alvo) -> bool:
 
 
 def _escrever_materias(page, materias_delta, prof, persona_id, resultado, registro):
+    """Adiciona cada matéria do delta na aba Matérias e salva uma vez no final.
+
+    Mesma lógica de _escrever_turmas: o que entra vai para `resultado.materias_adicionadas`
+    (formato 'Nome: série'), base da validação da Fase 5.
+    """
     sleep(0.5)
     _clicar_aba(page, "Matérias")
     page.wait_for_load_state("networkidle", timeout=config.TIMEOUT_ELEMENTO)
@@ -303,6 +350,11 @@ def _escrever_materias(page, materias_delta, prof, persona_id, resultado, regist
 
 
 def _selecionar_materia(page, nome_materia: str, serie: str) -> bool:
+    """Abre o dropdown de matérias e seleciona a opção que casa nome + série. True se selecionou.
+
+    Cada opção tem o nome no text node e a série num <small>; casa por nome exato e série no sufixo
+    do <small> (evita confundir a mesma matéria em séries diferentes).
+    """
     seta = page.query_selector("#field-materias .ng-arrow-wrapper")
     if not seta:
         return False

@@ -1,3 +1,5 @@
+"""Testes do registro de execução: acúmulo de linhas, truncamento de erro e export xlsx (ver ADR-003)."""
+
 from openpyxl import load_workbook
 
 from src.registro import COLUNAS_LOG, RegistroExecucao, resumir_erro

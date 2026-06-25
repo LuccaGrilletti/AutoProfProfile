@@ -57,7 +57,8 @@ def _selecionar_pagina_pegasus(contexto, url_pegasus: str):
 def _sessao_automatizada(url_pegasus: str):
     """Abre o Chrome, navega para o Pegasus e executa o fluxo de login.
 
-    AUTH_MODE=auto — implementar quando a estratégia de auth estiver definida.
+    AUTH_MODE=auto — stub. Implementar quando a estratégia de auth estiver definida; o modo manual
+    via CDP é a escolha atual e o motivo está documentado no ADR-001.
     """
     raise NotImplementedError(
         "Modo 'auto' ainda não implementado. Use AUTH_MODE=manual e inicie o Chrome "

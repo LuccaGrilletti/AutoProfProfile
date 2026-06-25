@@ -59,6 +59,7 @@ def _processar_todos(page, profs, materias_fixas, registro):
 
 
 def _contar(resultados) -> dict:
+    """Conta quantos resultados há em cada status (para o resumo final)."""
     totais = {status: 0 for status in ORDEM_STATUS}
     for resultado in resultados:
         totais[resultado.status] = totais.get(resultado.status, 0) + 1

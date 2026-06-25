@@ -1,3 +1,5 @@
+"""Testes da normalização e do matching tolerante de classes (ver ADR-005)."""
+
 from src.ingestao import TurmaAlvo
 from src.matching import classe_bate, normalizar_classe, periodo_bate, segmento_para_texto
 

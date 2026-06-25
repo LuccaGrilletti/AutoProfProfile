@@ -1,7 +1,12 @@
 """Leitura completa do Gestor de Classes (GC).
 
-Monta o mapa professor_id → [ClasseGC] com as matérias e professores de cada classe. Deve ser
-chamado UMA única vez por execução; o resultado é reutilizado para todos os professores.
+Monta o mapa professor_id → [ClasseGC] com as matérias e professores de cada classe, percorrendo
+todas as páginas da tabela do GC e abrindo cada classe.
+
+Ferramenta ATIVA, mas de inspeção: na v1 o fluxo principal (`main` → `perfil`) NÃO chama o
+harvester — as matérias vêm da lista fixa da planilha (ver ADR-006). O harvester serve para
+auditar o GC e validar contagens contra o portal; o join por persona_id que ele faz é o mesmo
+descrito no ADR-004.
 
 Entry de debug (valida paginação + coleta contra o portal, com o Chrome logado):
     python -m src.harvester          # harvest completo
@@ -112,6 +117,7 @@ def _listar_classes(page, url_gc: str) -> list[tuple[str, str]]:
 
 
 def _ler_linhas_listagem(page) -> list[tuple[str, str]]:
+    """Lê as linhas visíveis da tabela do GC na página atual → [(id_classe, nome_classe)]."""
     resultado = []
     for linha in page.query_selector_all(SELETOR_LINHA_GC):
         id_cell = linha.query_selector("td.cdk-column-geClaseId")
@@ -136,6 +142,7 @@ def _total_paginador(page) -> int | None:
 
 
 def _id_primeira_linha(page) -> str:
+    """Id da classe na 1ª linha da tabela — sentinela para detectar a re-renderização ao paginar."""
     cell = page.query_selector(f"{SELETOR_TABELA_GC} {SELETOR_LINHA_GC} td.cdk-column-geClaseId")
     return cell.inner_text().strip() if cell else ""
 
@@ -171,6 +178,7 @@ def _proxima_pagina(page) -> bool:
 # --- Passo 2: abrir cada classe e coletar matérias + professores ---
 
 def _coletar_classe(page, url_classe_base: str, classe_id: str, classe_nome: str) -> ClasseGC:
+    """Abre a página de uma classe e devolve um ClasseGC com suas matérias e professores."""
     page.goto(f"{url_classe_base}{classe_id}", timeout=config.TIMEOUT_NAVEGACAO)
     # a presença da aba Professores indica que a página da classe carregou
     page.wait_for_selector(SELETOR_ABA_PROFESSORES, timeout=config.TIMEOUT_ELEMENTO)
@@ -180,6 +188,7 @@ def _coletar_classe(page, url_classe_base: str, classe_id: str, classe_nome: str
 
 
 def _coletar_materias(page) -> set[str]:
+    """Lê os chips de matéria da página da classe → conjunto de nomes de matéria."""
     materias = set()
     for chip in page.query_selector_all(SELETOR_CHIP_MATERIA):
         # O nome está no primeiro text node — ignora o ícone "close" do mat-chip-remove
